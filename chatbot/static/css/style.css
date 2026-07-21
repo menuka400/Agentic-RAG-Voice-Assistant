@@ -1,0 +1,450 @@
+/* ─────────────────────────────────────────────────────────────
+   style.css — Dark voice-assistant aesthetic redesign
+   ───────────────────────────────────────────────────────────── */
+
+/* ── Reset & Tokens ─────────────────────────────────────────── */
+*, *::before, *::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+:root {
+  /* Colour palette */
+  --bg-page:          #070b14;
+  --card-bg:          rgba(13, 18, 34, 0.72);
+  --card-border:      rgba(99, 132, 255, 0.18);
+  --bg-user-msg:      #2563eb;
+  --bg-bot-msg:       rgba(255, 255, 255, 0.06);
+  --bg-input:         rgba(255, 255, 255, 0.06);
+  --border:           rgba(255, 255, 255, 0.09);
+  --send-btn:         #2563eb;
+  --send-hover:       #1d4ed8;
+
+  --text-primary:     #e2e8f0;
+  --text-muted:       #6b7280;
+  --text-on-accent:   #ffffff;
+
+  /* Arc glow colours */
+  --arc-color-a:      #3b82f6;   /* blue  */
+  --arc-color-b:      #7c3aed;   /* purple */
+
+  /* Waveform colours */
+  --wave-color-a:     #38bdf8;   /* cyan   */
+  --wave-color-b:     #818cf8;   /* indigo */
+
+  /* Mic button */
+  --mic-idle:         #1e3a5f;
+  --mic-idle-glow:    rgba(56, 189, 248, 0.35);
+  --mic-active:       #2563eb;
+  --mic-active-glow:  rgba(99, 102, 241, 0.6);
+
+  /* Shape */
+  --radius-card:      24px;
+  --radius-bubble:    16px;
+  --radius-input:     14px;
+
+  /* Typography */
+  --font: 'Inter', 'Segoe UI', system-ui, sans-serif;
+  --font-size-base:   0.95rem;
+  --font-size-sm:     0.78rem;
+
+  /* Transitions */
+  --transition:       0.2s ease;
+}
+
+/* ── Base ────────────────────────────────────────────────────── */
+html, body {
+  height: 100%;
+  background: var(--bg-page);
+  color: var(--text-primary);
+  font-family: var(--font);
+  font-size: var(--font-size-base);
+  -webkit-font-smoothing: antialiased;
+  overflow: hidden;          /* page itself doesn't scroll */
+}
+
+/* ── Glowing arc — radial gradient + blur, pure CSS ─────────── */
+.glow-arc {
+  position: fixed;
+  bottom: -220px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 900px;
+  height: 500px;
+  border-radius: 50%;
+  /* The "arc" is a conic/radial gradient ring */
+  background: radial-gradient(
+    ellipse at center bottom,
+    var(--arc-color-b) 0%,
+    var(--arc-color-a) 35%,
+    transparent 70%
+  );
+  filter: blur(72px);
+  opacity: 0.45;
+  pointer-events: none;
+  z-index: 0;
+}
+
+/* ── Frosted-glass main card ─────────────────────────────────── */
+.main-card {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  max-width: 720px;
+  height: 100vh;
+  max-height: 100vh;
+  margin: 0 auto;
+
+  background: var(--card-bg);
+  border-left:  1px solid var(--card-border);
+  border-right: 1px solid var(--card-border);
+  backdrop-filter: blur(24px) saturate(160%);
+  -webkit-backdrop-filter: blur(24px) saturate(160%);
+  box-shadow: 0 0 60px rgba(56, 189, 248, 0.08),
+              0 24px 80px rgba(0, 0, 0, 0.6);
+  overflow: hidden;
+}
+
+/* ── Card top-bar ────────────────────────────────────────────── */
+.card-topbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 20px;
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+}
+
+.card-title {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+}
+
+.status-dot {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: #22c55e;
+  box-shadow: 0 0 8px #22c55e88;
+  flex-shrink: 0;
+}
+
+.model-badge {
+  font-size: var(--font-size-sm);
+  color: var(--text-muted);
+  background: var(--bg-input);
+  border: 1px solid var(--border);
+  padding: 2px 10px;
+  border-radius: 20px;
+}
+
+/* Close button (top-right) */
+.close-btn {
+  width: 30px;
+  height: 30px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: color var(--transition), border-color var(--transition);
+}
+.close-btn svg {
+  width: 14px;
+  height: 14px;
+}
+.close-btn:hover {
+  color: var(--text-primary);
+  border-color: rgba(255,255,255,0.25);
+}
+
+/* ── Waveform section ────────────────────────────────────────── */
+.waveform-section {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 20px 0 8px;
+  flex-shrink: 0;
+}
+
+.waveform-canvas {
+  width: 100%;
+  max-width: 600px;
+  height: 80px;
+  display: block;
+}
+
+.waveform-status {
+  margin-top: 8px;
+  font-size: var(--font-size-sm);
+  color: var(--text-muted);
+  text-align: center;
+  min-height: 1.4em;
+  padding: 0 16px;
+  max-width: 560px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  transition: color var(--transition);
+}
+.waveform-status.active {
+  color: var(--wave-color-a);
+}
+
+/* ── Circular mic button ─────────────────────────────────────── */
+.mic-section {
+  display: flex;
+  justify-content: center;
+  padding: 8px 0 12px;
+  flex-shrink: 0;
+}
+
+.mic-btn {
+  width: 64px;
+  height: 64px;
+  border-radius: 50%;
+  border: none;
+  background: var(--mic-idle);
+  color: #fff;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 0 0 0 var(--mic-idle-glow),
+              0 4px 20px rgba(0, 0, 0, 0.4);
+  transition: background var(--transition),
+              box-shadow var(--transition),
+              transform var(--transition);
+}
+
+.mic-btn svg {
+  width: 26px;
+  height: 26px;
+}
+
+.mic-btn:hover {
+  transform: scale(1.06);
+  box-shadow: 0 0 0 8px var(--mic-idle-glow),
+              0 4px 24px rgba(0, 0, 0, 0.45);
+}
+
+/* Active / recording state */
+.mic-btn.recording {
+  background: var(--mic-active);
+  animation: mic-pulse 1.2s infinite ease-in-out;
+}
+
+@keyframes mic-pulse {
+  0%   { box-shadow: 0 0 0 0  var(--mic-active-glow), 0 4px 20px rgba(0,0,0,0.4); }
+  50%  { box-shadow: 0 0 0 16px rgba(99,102,241,0),   0 4px 20px rgba(0,0,0,0.4); }
+  100% { box-shadow: 0 0 0 0  var(--mic-active-glow), 0 4px 20px rgba(0,0,0,0.4); }
+}
+
+/* ── Message list ─────────────────────────────────────────────── */
+.chat-messages {
+  flex: 1;
+  overflow-y: auto;
+  padding: 16px 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  scroll-behavior: smooth;
+}
+
+/* Custom scrollbar */
+.chat-messages::-webkit-scrollbar { width: 5px; }
+.chat-messages::-webkit-scrollbar-track { background: transparent; }
+.chat-messages::-webkit-scrollbar-thumb {
+  background: rgba(255,255,255,0.12);
+  border-radius: 3px;
+}
+
+/* ── Message rows ─────────────────────────────────────────────── */
+.message {
+  display: flex;
+  align-items: flex-end;
+  gap: 6px;
+  max-width: 80%;
+}
+
+.message.user {
+  align-self: flex-end;
+  flex-direction: row-reverse;
+}
+
+.message.bot {
+  align-self: flex-start;
+}
+
+/* ── Bubbles ──────────────────────────────────────────────────── */
+.bubble {
+  padding: 10px 14px;
+  border-radius: var(--radius-bubble);
+  line-height: 1.55;
+  word-break: break-word;
+  font-size: var(--font-size-base);
+  animation: pop-in 0.18s ease;
+}
+
+.message.user .bubble {
+  background: var(--bg-user-msg);
+  color: var(--text-on-accent);
+  border-bottom-right-radius: 4px;
+}
+
+.message.bot .bubble {
+  background: var(--bg-bot-msg);
+  color: var(--text-primary);
+  border-bottom-left-radius: 4px;
+  border: 1px solid var(--border);
+  white-space: normal;
+}
+
+.message.error .bubble {
+  background: rgba(127, 29, 29, 0.6);
+  color: #fca5a5;
+  border: 1px solid #991b1b;
+  border-radius: var(--radius-bubble);
+}
+
+/* ── Typing / loading indicator ───────────────────────────────── */
+.loading-indicator {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 10px 14px;
+  background: var(--bg-bot-msg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-bubble);
+  border-bottom-left-radius: 4px;
+  width: fit-content;
+}
+
+.loading-indicator span {
+  width: 6px;
+  height: 6px;
+  background: var(--text-muted);
+  border-radius: 50%;
+  display: inline-block;
+  animation: bounce 1.2s infinite ease-in-out;
+}
+.loading-indicator span:nth-child(2) { animation-delay: 0.2s; }
+.loading-indicator span:nth-child(3) { animation-delay: 0.4s; }
+
+@keyframes bounce {
+  0%, 80%, 100% { transform: translateY(0);    opacity: 0.5; }
+  40%            { transform: translateY(-6px); opacity: 1;   }
+}
+
+/* ── Input bar ─────────────────────────────────────────────────── */
+.chat-input-bar {
+  display: flex;
+  align-items: flex-end;
+  gap: 10px;
+  padding: 12px 16px;
+  border-top: 1px solid var(--border);
+  background: rgba(0, 0, 0, 0.2);
+  flex-shrink: 0;
+}
+
+.chat-input {
+  flex: 1;
+  resize: none;
+  background: var(--bg-input);
+  color: var(--text-primary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-input);
+  padding: 10px 14px;
+  font-family: var(--font);
+  font-size: var(--font-size-base);
+  line-height: 1.5;
+  max-height: 140px;
+  overflow-y: auto;
+  outline: none;
+  transition: border-color var(--transition);
+}
+.chat-input::placeholder { color: var(--text-muted); }
+.chat-input:focus { border-color: var(--arc-color-a); }
+.chat-input:disabled { opacity: 0.45; cursor: not-allowed; }
+
+/* ── Send button ──────────────────────────────────────────────── */
+.send-btn {
+  width: 42px;
+  height: 42px;
+  flex-shrink: 0;
+  background: var(--send-btn);
+  border: none;
+  border-radius: 12px;
+  color: #fff;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background var(--transition), transform var(--transition);
+}
+.send-btn svg { width: 18px; height: 18px; }
+.send-btn:hover:not(:disabled) { background: var(--send-hover); transform: scale(1.05); }
+.send-btn:disabled { opacity: 0.4; cursor: not-allowed; transform: none; }
+
+/* ── Speak (TTS) button next to bot messages ──────────────────── */
+.speak-btn {
+  background: none;
+  border: none;
+  cursor: pointer;
+  font-size: 1em;
+  padding: 4px 6px;
+  align-self: flex-end;
+  opacity: 0.45;
+  transition: opacity var(--transition);
+  border-radius: 6px;
+  color: var(--text-muted);
+}
+.speak-btn:hover { opacity: 1; }
+
+/* ── Pop-in animation ─────────────────────────────────────────── */
+@keyframes pop-in {
+  from { opacity: 0; transform: scale(0.95) translateY(4px); }
+  to   { opacity: 1; transform: scale(1)    translateY(0);   }
+}
+
+/* ── Markdown inside bot bubbles ──────────────────────────────── */
+.message.bot .bubble p           { margin-bottom: 0.75em; }
+.message.bot .bubble p:last-child{ margin-bottom: 0; }
+.message.bot .bubble ul,
+.message.bot .bubble ol          { margin-bottom: 0.75em; padding-left: 1.5em; }
+.message.bot .bubble li          { margin-bottom: 0.25em; }
+.message.bot .bubble pre         {
+  background: rgba(0, 0, 0, 0.25);
+  border-radius: 6px;
+  padding: 10px;
+  overflow-x: auto;
+  margin-bottom: 0.75em;
+}
+.message.bot .bubble code        {
+  background: rgba(0, 0, 0, 0.25);
+  padding: 2px 4px;
+  border-radius: 4px;
+  font-family: monospace;
+  font-size: 0.9em;
+}
+.message.bot .bubble pre code    { background: transparent; padding: 0; }
+.message.bot .bubble a           { color: #60a5fa; text-decoration: none; }
+.message.bot .bubble a:hover     { text-decoration: underline; }
+
+/* ── Responsive ──────────────────────────────────────────────── */
+@media (max-width: 600px) {
+  .message        { max-width: 90%; }
+  .model-badge    { display: none; }
+  .waveform-canvas{ height: 60px; }
+  .mic-btn        { width: 56px; height: 56px; }
+  .mic-btn svg    { width: 22px; height: 22px; }
+}

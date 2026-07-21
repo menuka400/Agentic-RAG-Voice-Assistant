@@ -1,0 +1,18 @@
+fastapi
+uvicorn[standard]
+pydantic
+groq
+python-dotenv
+jinja2
+python-multipart
+langchain
+langgraph
+langchain-groq
+langchain-community
+duckduckgo-search
+elevenlabs
+# Requires git to be installed/available during pip install
+git+https://github.com/TEN-framework/ten-vad.git
+numpy
+scipy
+soundfile
