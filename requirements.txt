@@ -16,3 +16,6 @@ git+https://github.com/TEN-framework/ten-vad.git
 numpy
 scipy
 soundfile
+chromadb
+sentence-transformers
+pypdf

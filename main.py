@@ -22,6 +22,14 @@ sys.path.insert(0, os.path.dirname(__file__))
 
 import uvicorn
 import config
+import ingest
+
+print("[chatbot] Checking RAG PDF ingest...")
+try:
+    ingest.main()
+except Exception as e:
+    print(f"[chatbot] Ingest failed: {e}")
+
 from app import create_app
 
 # Build the FastAPI application instance once at startup
@@ -35,6 +43,7 @@ def open_browser():
 
 
 if __name__ == "__main__":
+
     threading.Thread(target=open_browser, daemon=True).start()
 
     print(f"[chatbot] Server starting at http://{config.HOST}:{config.PORT}")

@@ -24,7 +24,7 @@ from langgraph.prebuilt import ToolNode
 from langchain_groq import ChatGroq
 
 import config
-from app.tools import web_search, get_current_datetime
+from app.tools import web_search, get_current_datetime, search_documents
 
 # ── Logging setup ──────────────────────────────────────────────────────────
 
@@ -44,7 +44,7 @@ llm = ChatGroq(
 )
 
 # Tool registry. To add a new tool (e.g., RAG), just append it here.
-tools = [web_search, get_current_datetime]
+tools = [web_search, get_current_datetime, search_documents]
 llm_with_tools = llm.bind_tools(tools)
 
 
@@ -134,7 +134,7 @@ def call_model(state: MessagesState):
             logger.warning("Groq tool_use_failed error detected. Attempting regex fallback.")
 
             # Attempt to parse the raw text tool call from the error's failed_generation
-            match = re.search(r"<function=(\w+)>(\{.*?\})", str(e))
+            match = re.search(r"<function=(\w+)>?(\{.*?\})", str(e))
             if match:
                 func_name = match.group(1)
                 try:
@@ -326,7 +326,48 @@ async def run_agent(messages: List[BaseMessage], system_prompt: str = None) -> s
             final_message.content[:100],
         )
 
-        return final_message.content
+        # ── Programmatically build source citation footer ─────────────────
+        # Detect which tools were called in this turn (after last HumanMessage).
+        # Never rely on LLM to self-cite — it's unreliable.
+        import re as _re
+        tool_names_called = []
+        past_human = False
+        for m in result["messages"]:
+            if isinstance(m, HumanMessage):
+                past_human = True
+                tool_names_called = []  # reset: only track current turn
+            elif past_human and isinstance(m, AIMessage) and getattr(m, "tool_calls", None):
+                for tc in m.tool_calls:
+                    tool_names_called.append(tc["name"])
+
+        citation_parts = []
+        for tool_name in dict.fromkeys(tool_names_called):  # unique, preserve order
+            if tool_name == "search_documents":
+                # Extract filename + page from tool output text
+                rag_sources = []
+                for m in result["messages"]:
+                    if isinstance(m, ToolMessage) and "Document snippet" in m.content:
+                        matches = _re.findall(
+                            r"Source: ([^,]+), Page: ([^)]+)", m.content
+                        )
+                        for src, page in matches:
+                            label = f"{src.strip()} — Page {page.strip()}"
+                            if label not in rag_sources:
+                                rag_sources.append(label)
+                if rag_sources:
+                    citation_parts.append("📄 **Source:** " + " | ".join(rag_sources))
+                else:
+                    citation_parts.append("📄 **Source:** PDF Documents")
+            elif tool_name == "web_search":
+                citation_parts.append("🌐 **Source:** Web Search")
+            elif tool_name == "get_current_datetime":
+                citation_parts.append("🕐 **Source:** Time Server")
+
+        if not citation_parts:
+            citation_parts.append("💭 **Source:** LLM Knowledge")
+
+        citation_footer = "\n\n---\n" + "\n".join(citation_parts)
+        return final_message.content + citation_footer
 
     except Exception as exc:
         err_str = str(exc).lower()
