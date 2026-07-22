@@ -14,7 +14,7 @@ A locally-run chatbot web app with agentic tool calling and voice capabilities. 
 
 ## Project Overview
 - **Core Engine:** Built with FastAPI (backend), LangChain + LangGraph (agentic orchestration), and Groq API for high-speed LLM inference (using `llama-3.3-70b-versatile`).
-- **Agentic Tool Use:** Features real-time web search (via DuckDuckGo) and a custom timezone-aware date/time tool. The agent autonomously decides when to use tools to answer queries.
+- **Agentic Tool Use:** Features real-time web search (via DuckDuckGo), a custom timezone-aware date/time tool, and **Local Document RAG** to query user-uploaded PDFs. The agent autonomously decides when to use tools and explicitly cites its sources in responses.
 - **Voice Interaction:** Supports Speech-to-Text (STT) and Text-to-Speech (TTS) via ElevenLabs API (currently using Groq Whisper API for STT). Integrates TEN VAD (Voice Activity Detection) as a preprocessing layer to filter out silence and background noise before transcription, combined with a custom frequency-range human-voice check.
 - **Memory Management:** Session-based conversation memory (in-memory, resets on restart) with automatic summarization of older messages to prevent exceeding the LLM context window.
 - **UI:** A clean, locally hosted web UI that properly renders Markdown (bullet points, bold text, etc.).
@@ -26,6 +26,7 @@ A locally-run chatbot web app with agentic tool calling and voice capabilities. 
 - **LangChain / LangGraph**
 - **Groq API** (`llama-3.3-70b-versatile`)
 - **DuckDuckGo Search**
+- **ChromaDB** & **sentence-transformers** (Local Vector Store & Embeddings)
 - **TEN VAD**
 - **ElevenLabs API** (TTS/STT)
 - **Jinja2 Templates**
@@ -33,6 +34,7 @@ A locally-run chatbot web app with agentic tool calling and voice capabilities. 
 
 ## Features
 - Real-time web search for current events/facts
+- Local Document RAG (upload PDFs to `data/pdfs/` and query them locally)
 - Accurate date/time lookup by timezone
 - Voice input (STT) and voice output (TTS)
 - Background noise filtering via VAD before transcription
@@ -43,9 +45,13 @@ A locally-run chatbot web app with agentic tool calling and voice capabilities. 
 ```text
 chatbot/
 ├── main.py
+├── ingest.py
 ├── config.py
 ├── requirements.txt
 ├── .env.example
+├── data/
+│   └── pdfs/
+├── vectorstore/
 ├── app/
 │   ├── routes.py
 │   ├── agent.py
@@ -140,7 +146,7 @@ chatbot/
 
 ## Roadmap / Future Enhancements
 
-- [ ] Add RAG (Retrieval-Augmented Generation) support — ingest PDFs/documents (starting with technical books/papers) into a vector database (ChromaDB) with local embeddings, and add a search_documents tool to the existing agent alongside web_search
+- [x] Add RAG (Retrieval-Augmented Generation) support — ingest PDFs/documents into a vector database (ChromaDB) with local embeddings, and add a search_documents tool to the existing agent alongside web_search. Auto-generates citation footers based on tool usage.
 - [ ] Replace ElevenLabs (TTS/STT) with fully open-source, self-hosted alternatives (faster-whisper for STT, Piper for TTS) for a 100% free/open-source stack
 - [ ] Redesign the chat UI with a modern voice-assistant aesthetic (dark theme, animated waveform visualization reacting to live audio)
 - [ ] Add an Interrupt button — allow the user to stop the bot mid-response/mid-speech
