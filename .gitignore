@@ -17,3 +17,6 @@ env/
 # IDE
 .vscode/
 .idea/
+
+# RAG DB
+vectorstore/
