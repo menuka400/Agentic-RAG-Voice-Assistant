@@ -4,20 +4,20 @@
 
 let sessionId = localStorage.getItem("chatbot_session_id") || null;
 
-const messagesEl = document.getElementById("chat-messages");
-const inputEl = document.getElementById("user-input");
-const sendBtn = document.getElementById("send-btn");
+const messagesEl     = document.getElementById("chat-messages");
+const inputEl        = document.getElementById("user-input");
+const sendBtn        = document.getElementById("send-btn");
 const waveformStatus = document.getElementById("waveform-status");
-const waveCanvas = document.getElementById("waveform-canvas");
-const micBtn = document.getElementById("mic-btn");
+const waveCanvas     = document.getElementById("waveform-canvas");
+const micBtn         = document.getElementById("mic-btn");
 
 // NEW BUTTONS
-const interruptBtn = document.getElementById("interrupt-btn");
-const muteBtn = document.getElementById("mute-btn");
-const holdBtn = document.getElementById("hold-btn");
-const iconMuted = document.querySelector(".icon-muted");
-const iconUnmuted = document.querySelector(".icon-unmuted");
-const muteLabel = document.querySelector(".mute-label");
+const interruptBtn   = document.getElementById("interrupt-btn");
+const muteBtn        = document.getElementById("mute-btn");
+const holdBtn        = document.getElementById("hold-btn");
+const iconMuted      = document.querySelector(".icon-muted");
+const iconUnmuted    = document.querySelector(".icon-unmuted");
+const muteLabel      = document.querySelector(".mute-label");
 
 // GLOBALS FOR NEW LOGIC
 let chatAbortController = null;
@@ -26,8 +26,8 @@ let isMuted = false;
 let isHeld = false;
 
 // Wire up close button (kept for existing refs)
-const closeBtn = document.getElementById("close-btn");
-const mainCard = document.getElementById("main-card");
+const closeBtn  = document.getElementById("close-btn");
+const mainCard  = document.getElementById("main-card");
 if (closeBtn && mainCard) {
   closeBtn.addEventListener("click", () => {
     mainCard.style.display = "none";
@@ -47,13 +47,13 @@ interruptBtn.addEventListener("click", () => {
     currentAudio.currentTime = 0;
     currentAudio = null;
   }
-
+  
   // Cleanup UI
   stopWaveAnimation();
   setWaveStatus("Interrupted.", false);
   setInputDisabled(false);
   setInterruptActive(false);
-
+  
   // Remove loading indicator if exists
   const loading = document.querySelector(".loading-indicator");
   if (loading) loading.parentElement.remove();
@@ -89,7 +89,7 @@ muteBtn.addEventListener("click", () => {
 // 3. Hold Button
 holdBtn.addEventListener("click", () => {
   if (!isRecording || !mediaRecorder) return;
-
+  
   if (!isHeld) {
     // Pause recording
     mediaRecorder.pause();
@@ -97,7 +97,7 @@ holdBtn.addEventListener("click", () => {
     holdBtn.classList.add("held");
     stopWaveAnimation();
     setWaveStatus("Paused — tap Hold to resume", false);
-
+    
     // Pause TTS if playing
     if (currentAudio && !currentAudio.paused) {
       currentAudio.pause();
@@ -123,16 +123,16 @@ function setHoldActive(active) {
 // ── 2. Waveform Visualizer ────────────────────────────────────
 
 const waveCtx = waveCanvas ? waveCanvas.getContext("2d") : null;
-let audioCtx = null;
-let analyser = null;
-let waveMode = "idle";
-let animFrameId = null;
-let idlePhase = 0;
+let audioCtx       = null;
+let analyser       = null;
+let waveMode       = "idle"; 
+let animFrameId    = null;   
+let idlePhase      = 0;      
 
 function ensureAudioCtx() {
   if (!audioCtx) {
     audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-    analyser = audioCtx.createAnalyser();
+    analyser  = audioCtx.createAnalyser();
     analyser.fftSize = 256;
     analyser.smoothingTimeConstant = 0.8;
     // NOTE: analyser is intentionally NOT connected to destination here.
@@ -146,7 +146,7 @@ function ensureAudioCtx() {
 function resizeCanvas() {
   if (!waveCanvas) return;
   const rect = waveCanvas.getBoundingClientRect();
-  waveCanvas.width = rect.width * window.devicePixelRatio;
+  waveCanvas.width  = rect.width  * window.devicePixelRatio;
   waveCanvas.height = rect.height * window.devicePixelRatio;
   waveCtx.scale(window.devicePixelRatio, window.devicePixelRatio);
 }
@@ -156,31 +156,31 @@ setTimeout(resizeCanvas, 100);
 function drawWave() {
   if (!waveCtx || !waveCanvas) return;
 
-  const W = waveCanvas.width / window.devicePixelRatio;
+  const W = waveCanvas.width  / window.devicePixelRatio;
   const H = waveCanvas.height / window.devicePixelRatio;
   const cx = waveCtx;
 
   cx.clearRect(0, 0, W, H);
 
   const grad = cx.createLinearGradient(0, 0, W, 0);
-  grad.addColorStop(0, "#38bdf8");
-  grad.addColorStop(0.5, "#818cf8");
-  grad.addColorStop(1, "#38bdf8");
+  grad.addColorStop(0,    "#38bdf8");
+  grad.addColorStop(0.5,  "#818cf8");
+  grad.addColorStop(1,    "#38bdf8");
 
   cx.strokeStyle = grad;
-  cx.lineWidth = 2.5;
-  cx.lineCap = "round";
-  cx.lineJoin = "round";
+  cx.lineWidth   = 2.5;
+  cx.lineCap     = "round";
+  cx.lineJoin    = "round";
 
   if (waveMode === "idle") {
     idlePhase += 0.02;
     cx.globalAlpha = 0.5;
     cx.beginPath();
     for (let x = 0; x <= W; x++) {
-      const t = x / W;
+      const t   = x / W;
       const amp = 15;
-      const y = H / 2 + Math.sin(t * Math.PI * 3 + idlePhase) * amp
-        + Math.sin(t * Math.PI * 2 - idlePhase * 0.5) * (amp * 0.5);
+      const y   = H / 2 + Math.sin(t * Math.PI * 3 + idlePhase) * amp
+                        + Math.sin(t * Math.PI * 2 - idlePhase * 0.5) * (amp * 0.5);
       x === 0 ? cx.moveTo(x, y) : cx.lineTo(x, y);
     }
     cx.stroke();
@@ -188,14 +188,14 @@ function drawWave() {
 
   } else {
     const bufferLength = analyser.frequencyBinCount;
-    const dataArray = new Uint8Array(bufferLength);
+    const dataArray    = new Uint8Array(bufferLength);
     analyser.getByteTimeDomainData(dataArray);
 
     cx.beginPath();
     const sliceW = W / bufferLength;
     let x = 0;
     for (let i = 0; i < bufferLength; i++) {
-      const v = dataArray[i] / 128.0;
+      const v = dataArray[i] / 128.0; 
       const y = (v * H) / 2;
       i === 0 ? cx.moveTo(x, y) : cx.lineTo(x, y);
       x += sliceW;
@@ -270,14 +270,14 @@ function stripForSpeech(text) {
 // ── 3. Message helpers ────────────────────────────────────────
 
 function appendMessage(text, role) {
-  const msgDiv = document.createElement("div");
+  const msgDiv    = document.createElement("div");
   const bubbleDiv = document.createElement("div");
 
   msgDiv.classList.add("message", role);
   bubbleDiv.classList.add("bubble");
 
   if (role === "bot") {
-    const rawHtml = marked.parse(text);
+    const rawHtml   = marked.parse(text);
     const cleanHtml = DOMPurify.sanitize(rawHtml);
     bubbleDiv.innerHTML = cleanHtml;
   } else {
@@ -290,8 +290,8 @@ function appendMessage(text, role) {
     const speakBtn = document.createElement("button");
     speakBtn.classList.add("speak-btn");
     speakBtn.innerHTML = "🔊";
-    speakBtn.title = "Speak (TTS)";
-    speakBtn.onclick = () => playTTS(stripForSpeech(text), speakBtn, true); // true = manual click
+    speakBtn.title     = "Speak (TTS)";
+    speakBtn.onclick   = () => playTTS(stripForSpeech(text), speakBtn, true); // true = manual click
     msgDiv.appendChild(speakBtn);
   }
 
@@ -301,7 +301,7 @@ function appendMessage(text, role) {
 }
 
 function showLoading() {
-  const wrapper = document.createElement("div");
+  const wrapper   = document.createElement("div");
   const indicator = document.createElement("div");
   wrapper.classList.add("message", "bot");
   indicator.classList.add("loading-indicator");
@@ -317,8 +317,8 @@ function scrollToBottom() {
 }
 
 function setInputDisabled(disabled) {
-  inputEl.disabled = disabled;
-  sendBtn.disabled = disabled;
+  inputEl.disabled  = disabled;
+  sendBtn.disabled  = disabled;
 }
 
 inputEl.addEventListener("input", () => {
@@ -333,11 +333,11 @@ let ttsSourceNode = null;
 async function playTTS(text, btnElement, isManual = false) {
   // If muted and it's not a manual click, skip auto-play
   if (isMuted && !isManual) return;
-
+  
   if (btnElement) {
     var originalHtml = btnElement.innerHTML;
     btnElement.innerHTML = "⏳";
-    btnElement.disabled = true;
+    btnElement.disabled  = true;
   }
   setWaveStatus("Generating speech…", true);
 
@@ -346,37 +346,37 @@ async function playTTS(text, btnElement, isManual = false) {
     currentAudio.pause();
     currentAudio.currentTime = 0;
   }
-
+  
   chatAbortController = new AbortController();
   setInterruptActive(true);
 
   try {
     const response = await fetch("/api/tts", {
-      method: "POST",
+      method:  "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ text }),
-      signal: chatAbortController.signal
+      body:    JSON.stringify({ text }),
+      signal:  chatAbortController.signal
     });
 
     if (!response.ok) throw new Error("TTS failed");
 
-    const blob = await response.blob();
+    const blob     = await response.blob();
     const audioUrl = URL.createObjectURL(blob);
-    currentAudio = new Audio(audioUrl);
+    currentAudio   = new Audio(audioUrl);
 
     ensureAudioCtx();
 
     if (ttsSourceNode) {
-      try { ttsSourceNode.disconnect(); } catch (_) { }
+      try { ttsSourceNode.disconnect(); } catch (_) {}
       ttsSourceNode = null;
     }
 
     const sourceNode = audioCtx.createMediaElementSource(currentAudio);
-    ttsSourceNode = sourceNode;
+    ttsSourceNode    = sourceNode;
     sourceNode.connect(analyser);
     sourceNode.connect(audioCtx.destination);
 
-    currentAudio.addEventListener("play", () => {
+    currentAudio.addEventListener("play",  () => {
       startWaveAnimation("tts");
       setWaveStatus("Speaking…", true);
     });
@@ -386,7 +386,7 @@ async function playTTS(text, btnElement, isManual = false) {
       setWaveStatus("Tap the mic to speak…", false);
       if (btnElement) {
         btnElement.innerHTML = originalHtml;
-        btnElement.disabled = false;
+        btnElement.disabled  = false;
       }
       URL.revokeObjectURL(audioUrl);
       currentAudio = null;
@@ -405,7 +405,7 @@ async function playTTS(text, btnElement, isManual = false) {
       setWaveStatus("Voice unavailable", false);
       if (btnElement) {
         btnElement.innerHTML = originalHtml;
-        btnElement.disabled = false;
+        btnElement.disabled  = false;
       }
     }
   } finally {
@@ -427,16 +427,16 @@ async function sendMessage() {
   appendMessage(text, "user");
   setInputDisabled(true);
   const loadingEl = showLoading();
-
+  
   chatAbortController = new AbortController();
   setInterruptActive(true);
 
   try {
     const response = await fetch("/api/chat", {
-      method: "POST",
+      method:  "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ message: text, session_id: sessionId }),
-      signal: chatAbortController.signal
+      body:    JSON.stringify({ message: text, session_id: sessionId }),
+      signal:  chatAbortController.signal
     });
 
     loadingEl.remove();
@@ -451,9 +451,9 @@ async function sendMessage() {
         localStorage.setItem("chatbot_session_id", sessionId);
       }
       const botMsg = appendMessage(data.reply, "bot");
-
+      
       const botSpeakBtn = botMsg.querySelector(".speak-btn");
-
+      
       // Auto-play TTS if not muted
       if (!isMuted) {
         // playTTS will handle setting setInterruptActive(false) when done
@@ -491,10 +491,10 @@ inputEl.addEventListener("keydown", (event) => {
 
 // ── 7. STT (Speech-to-Text) ───────────────────────────────────
 
-let mediaRecorder = null;
-let audioChunks = [];
-let isRecording = false;
-let micSourceNode = null;
+let mediaRecorder    = null;
+let audioChunks      = [];
+let isRecording      = false;
+let micSourceNode    = null;
 
 if (micBtn) {
   micBtn.addEventListener("click", async () => {
@@ -510,7 +510,7 @@ async function startRecording() {
   try {
     const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
     mediaRecorder = new MediaRecorder(stream);
-    audioChunks = [];
+    audioChunks   = [];
 
     ensureAudioCtx();
     if (audioCtx.state === "suspended") await audioCtx.resume();
@@ -522,7 +522,7 @@ async function startRecording() {
 
     mediaRecorder.addEventListener("stop", async () => {
       if (micSourceNode) {
-        try { micSourceNode.disconnect(); } catch (_) { }
+        try { micSourceNode.disconnect(); } catch (_) {}
         micSourceNode = null;
       }
       const audioBlob = new Blob(audioChunks, { type: "audio/webm" });
@@ -536,7 +536,7 @@ async function startRecording() {
     setWaveStatus("Listening…", true);
     micBtn.innerHTML = "⏹";
     micBtn.classList.add("recording");
-
+    
     // Enable Hold button
     setHoldActive(true);
 
@@ -581,7 +581,7 @@ async function transcribeAudio(audioBlob) {
     inputEl.style.height = "auto";
     inputEl.style.height = inputEl.scrollHeight + "px";
     setWaveStatus(data.text, false);
-
+    
     // Auto send the message
     sendMessage();
 
