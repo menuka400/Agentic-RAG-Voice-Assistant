@@ -165,14 +165,15 @@ chatbot/
 - [x] Source citation footers — every response automatically shows whether info came from a PDF (with filename & page number), web search, or the LLM itself
 - [x] Multi-document RAG — any number of PDFs can be dropped into `data/pdfs/` and are all indexed together
 - [x] Groq tool-call failure recovery — regex fallback parses malformed `<function=...>` calls to prevent silent failures
+- [x] Redesign the chat UI with a modern voice-assistant aesthetic (dark theme, animated waveform visualization)
+- [x] Add an Interrupt button — allow the user to stop the bot mid-response/mid-speech
+- [x] Add a Mute button — toggle TTS audio output on/off without disabling the feature entirely
+- [x] Add a Hold/Pause button — pause the conversation/recording without ending the session
 
 ### Pending
 - [ ] Replace ElevenLabs (TTS/STT) with fully open-source self-hosted alternatives (faster-whisper for STT, Piper for TTS) for a 100% free stack
-- [ ] Redesign the chat UI with a modern voice-assistant aesthetic (dark theme, animated waveform visualization)
-- [ ] Add an Interrupt button — allow the user to stop the bot mid-response/mid-speech
-- [ ] Add a Mute button — toggle TTS audio output on/off without disabling the feature entirely
-- [ ] Add a Hold/Pause button — pause the conversation/recording without ending the session
-- [ ] Persistent conversation history — file-based or database storage across server restarts
+
+> **Note:** This chatbot does not have a specific hardcoded prompt that restricts its behavior by default. Users can freely modify the agent's system prompt to customize how it behaves to suit their own needs.
 
 ## License
 License: MIT
