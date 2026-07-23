@@ -30,16 +30,17 @@ SILENCE_DURATION: float = 2.0
 
 # Human voice fundamental frequency range (Hz).
 # Used to filter out non-vocal noise (fans, keyboard clicks, etc.).
-MIN_HUMAN_FREQ: float = 85.0
-MAX_HUMAN_FREQ: float = 300.0
+# (Increased MAX_HUMAN_FREQ to 3000.0 to account for speech formants)
+MIN_HUMAN_FREQ: float = 50.0
+MAX_HUMAN_FREQ: float = 3000.0
 
 # --- STT Safeguards (Hallucination/Noise Filters) ---
 # Minimum proportion of frames in a recording that must contain speech.
 # Helps reject recordings that are mostly silence with a tiny blip of noise.
-MIN_SPEECH_FRAME_RATIO: float = 0.4
+MIN_SPEECH_FRAME_RATIO: float = 0.15
 
 # Minimum duration (seconds) of the cleaned audio to be considered valid speech.
-MIN_SPEECH_DURATION_SECONDS: float = 0.4
+MIN_SPEECH_DURATION_SECONDS: float = 0.3
 
 # Minimum RMS energy required in the trimmed audio to be passed to STT.
 # Rejects faint background noises that technically pass VAD but aren't speech.

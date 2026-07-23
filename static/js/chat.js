@@ -527,7 +527,29 @@ async function startRecording() {
       }
       const audioBlob = new Blob(audioChunks, { type: "audio/webm" });
       stream.getTracks().forEach(t => t.stop());
-      await transcribeAudio(audioBlob);
+      
+      // Convert to WAV so the Python backend (scipy/VAD) can read it
+      ensureAudioCtx();
+      try {
+        const arrayBuffer = await audioBlob.arrayBuffer();
+        const decodedData = await audioCtx.decodeAudioData(arrayBuffer);
+        
+        // Resample to 16kHz using OfflineAudioContext for the backend VAD
+        const targetSampleRate = 16000;
+        const offlineCtx = new OfflineAudioContext(1, Math.ceil(decodedData.duration * targetSampleRate), targetSampleRate);
+        const source = offlineCtx.createBufferSource();
+        source.buffer = decodedData;
+        source.connect(offlineCtx.destination);
+        source.start();
+        
+        const resampledData = await offlineCtx.startRendering();
+        const wavBlob = audioBufferToWav(resampledData);
+        await transcribeAudio(wavBlob);
+      } catch (err) {
+        console.error("Failed to convert audio to WAV", err);
+        // Fallback to webm if conversion fails
+        await transcribeAudio(audioBlob);
+      }
     });
 
     mediaRecorder.start();
@@ -596,4 +618,64 @@ async function transcribeAudio(audioBlob) {
     </svg>`;
     micBtn.disabled = false;
   }
+}
+
+// ── 8. WAV Encoder Helper ────────────────────────────────────
+
+function audioBufferToWav(buffer) {
+  const numChannels = buffer.numberOfChannels;
+  const sampleRate = buffer.sampleRate;
+  const format = 1; // PCM
+  const bitDepth = 16;
+  
+  let samples;
+  if (numChannels === 1) {
+    samples = buffer.getChannelData(0);
+  } else {
+    // Mix down to mono
+    const left = buffer.getChannelData(0);
+    const right = buffer.getChannelData(1);
+    samples = new Float32Array(left.length);
+    for (let i = 0; i < left.length; i++) {
+      samples[i] = (left[i] + right[i]) / 2;
+    }
+  }
+
+  const bytesPerSample = bitDepth / 8;
+  const blockAlign = 1 * bytesPerSample; // Mono
+  const byteRate = sampleRate * blockAlign;
+  const dataSize = samples.length * bytesPerSample;
+  const bufferLength = 44 + dataSize;
+  const arrayBuffer = new ArrayBuffer(bufferLength);
+  const view = new DataView(arrayBuffer);
+
+  function writeString(view, offset, string) {
+    for (let i = 0; i < string.length; i++) {
+      view.setUint8(offset + i, string.charCodeAt(i));
+    }
+  }
+
+  writeString(view, 0, 'RIFF');
+  view.setUint32(4, 36 + dataSize, true);
+  writeString(view, 8, 'WAVE');
+  writeString(view, 12, 'fmt ');
+  view.setUint32(16, 16, true);
+  view.setUint16(20, format, true);
+  view.setUint16(22, 1, true); // Mono
+  view.setUint32(24, sampleRate, true);
+  view.setUint32(28, byteRate, true);
+  view.setUint16(32, blockAlign, true);
+  view.setUint16(34, bitDepth, true);
+  writeString(view, 36, 'data');
+  view.setUint32(40, dataSize, true);
+
+  let offset = 44;
+  for (let i = 0; i < samples.length; i++) {
+    let s = Math.max(-1, Math.min(1, samples[i]));
+    s = s < 0 ? s * 0x8000 : s * 0x7FFF;
+    view.setInt16(offset, s, true);
+    offset += 2;
+  }
+
+  return new Blob([view], { type: 'audio/wav' });
 }
