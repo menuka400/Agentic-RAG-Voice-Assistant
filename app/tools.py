@@ -56,3 +56,6 @@ def get_current_datetime(timezone: str) -> str:
         return f"The current date and time in {timezone} is: {current_time.strftime('%Y-%m-%d %I:%M:%S %p %Z')}"
     except Exception as e:
         return f"Error: Could not find timezone '{timezone}'. Please provide a valid IANA timezone name like 'Asia/Tokyo' or 'Europe/London'."
+
+from app.rag.rag_tool import get_search_documents_tool
+search_documents = get_search_documents_tool()

@@ -1,130 +1,201 @@
 /**
  * chat.js — Chat + voice UI logic
- *
- * Sections:
- *  1. Session & DOM refs
- *  2. Waveform visualizer (Web Audio API)
- *  3. Message rendering helpers (appendMessage, showLoading, etc.)
- *  4. TTS — playTTS() hooks into waveform so the canvas animates during playback
- *  5. Core sendMessage()
- *  6. Event listeners (send btn, Enter key)
- *  7. STT — mic recording; hooks into waveform for live mic animation
  */
 
-// ── 1. Session & DOM refs ─────────────────────────────────────
 let sessionId = localStorage.getItem("chatbot_session_id") || null;
 
-const messagesEl     = document.getElementById("chat-messages");
-const inputEl        = document.getElementById("user-input");
-const sendBtn        = document.getElementById("send-btn");
+const messagesEl = document.getElementById("chat-messages");
+const inputEl = document.getElementById("user-input");
+const sendBtn = document.getElementById("send-btn");
 const waveformStatus = document.getElementById("waveform-status");
-const waveCanvas     = document.getElementById("waveform-canvas");
-const micBtn         = document.getElementById("mic-btn");
+const waveCanvas = document.getElementById("waveform-canvas");
+const micBtn = document.getElementById("mic-btn");
 
-// Wire up close button — hides the card (non-destructive)
-const closeBtn  = document.getElementById("close-btn");
-const mainCard  = document.getElementById("main-card");
+// NEW BUTTONS
+const interruptBtn = document.getElementById("interrupt-btn");
+const muteBtn = document.getElementById("mute-btn");
+const holdBtn = document.getElementById("hold-btn");
+const iconMuted = document.querySelector(".icon-muted");
+const iconUnmuted = document.querySelector(".icon-unmuted");
+const muteLabel = document.querySelector(".mute-label");
+
+// GLOBALS FOR NEW LOGIC
+let chatAbortController = null;
+let currentAudio = null;
+let isMuted = false;
+let isHeld = false;
+
+// Wire up close button (kept for existing refs)
+const closeBtn = document.getElementById("close-btn");
+const mainCard = document.getElementById("main-card");
 if (closeBtn && mainCard) {
   closeBtn.addEventListener("click", () => {
-    mainCard.style.opacity = "0";
-    mainCard.style.transform = "scale(0.96)";
-    mainCard.style.transition = "opacity 0.25s ease, transform 0.25s ease";
-    setTimeout(() => { mainCard.style.display = "none"; }, 260);
+    mainCard.style.display = "none";
   });
 }
 
-// ── 2. Waveform Visualizer (Web Audio API) ───────────────────
-// 
-// The visualizer uses an AnalyserNode to get frequency-domain data in real time.
-// It supports three modes:
-//   - "idle":      gentle sine-wave animation, no audio input
-//   - "mic":       live microphone amplitude via getUserMedia stream
-//   - "tts":       audio element connected via createMediaElementSource
-//
-// Only ONE mode is active at a time. The animationFrameId guards the loop.
+// ── NEW BUTTON LOGIC ──────────────────────────────────────────
 
-const waveCtx = waveCanvas ? waveCanvas.getContext("2d") : null;
-let audioCtx       = null;   // Created lazily on first user gesture
-let analyser       = null;   // AnalyserNode — shared across modes
-let waveMode       = "idle"; // "idle" | "mic" | "tts"
-let animFrameId    = null;   // requestAnimationFrame handle
-let idlePhase      = 0;      // Phase accumulator for idle sine wave
+// 1. Interrupt Button
+interruptBtn.addEventListener("click", () => {
+  if (chatAbortController) {
+    chatAbortController.abort();
+    chatAbortController = null;
+  }
+  if (currentAudio) {
+    currentAudio.pause();
+    currentAudio.currentTime = 0;
+    currentAudio = null;
+  }
 
-/** Lazily create the AudioContext (browser requires a user gesture first). */
-function ensureAudioCtx() {
-  if (!audioCtx) {
-    audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-    analyser  = audioCtx.createAnalyser();
-    analyser.fftSize = 256;           // 128 frequency bins
-    analyser.smoothingTimeConstant = 0.8;
-    analyser.connect(audioCtx.destination);
+  // Cleanup UI
+  stopWaveAnimation();
+  setWaveStatus("Interrupted.", false);
+  setInputDisabled(false);
+  setInterruptActive(false);
+
+  // Remove loading indicator if exists
+  const loading = document.querySelector(".loading-indicator");
+  if (loading) loading.parentElement.remove();
+});
+
+function setInterruptActive(active) {
+  interruptBtn.disabled = !active;
+  interruptBtn.classList.toggle("active", active);
+}
+
+// 2. Mute Button
+muteBtn.addEventListener("click", () => {
+  isMuted = !isMuted;
+  muteBtn.classList.toggle("muted", isMuted);
+  if (isMuted) {
+    iconUnmuted.style.display = "none";
+    iconMuted.style.display = "block";
+    muteLabel.textContent = "Unmute";
+    // Pause currently playing TTS if muted mid-stream
+    if (currentAudio && !currentAudio.paused) {
+      currentAudio.pause();
+      stopWaveAnimation();
+      setWaveStatus("Muted.", false);
+      setInterruptActive(false);
+    }
+  } else {
+    iconUnmuted.style.display = "block";
+    iconMuted.style.display = "none";
+    muteLabel.textContent = "Mute";
+  }
+});
+
+// 3. Hold Button
+holdBtn.addEventListener("click", () => {
+  if (!isRecording || !mediaRecorder) return;
+
+  if (!isHeld) {
+    // Pause recording
+    mediaRecorder.pause();
+    isHeld = true;
+    holdBtn.classList.add("held");
+    stopWaveAnimation();
+    setWaveStatus("Paused — tap Hold to resume", false);
+
+    // Pause TTS if playing
+    if (currentAudio && !currentAudio.paused) {
+      currentAudio.pause();
+    }
+  } else {
+    // Resume recording
+    mediaRecorder.resume();
+    isHeld = false;
+    holdBtn.classList.remove("held");
+    startWaveAnimation("mic");
+    setWaveStatus("Listening…", true);
+  }
+});
+
+function setHoldActive(active) {
+  holdBtn.disabled = !active;
+  if (!active) {
+    isHeld = false;
+    holdBtn.classList.remove("held");
   }
 }
 
-/** Resize the canvas to match its CSS display size (avoids blurry canvas). */
+// ── 2. Waveform Visualizer ────────────────────────────────────
+
+const waveCtx = waveCanvas ? waveCanvas.getContext("2d") : null;
+let audioCtx = null;
+let analyser = null;
+let waveMode = "idle";
+let animFrameId = null;
+let idlePhase = 0;
+
+function ensureAudioCtx() {
+  if (!audioCtx) {
+    audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    analyser = audioCtx.createAnalyser();
+    analyser.fftSize = 256;
+    analyser.smoothingTimeConstant = 0.8;
+    // NOTE: analyser is intentionally NOT connected to destination here.
+    // Connecting it globally would route live mic input straight to the
+    // speakers (feedback/echo). Each source connects to destination
+    // individually only when it actually needs to be heard (TTS), while
+    // the mic source only feeds the analyser for visualization.
+  }
+}
+
 function resizeCanvas() {
   if (!waveCanvas) return;
   const rect = waveCanvas.getBoundingClientRect();
-  waveCanvas.width  = rect.width  * window.devicePixelRatio;
+  waveCanvas.width = rect.width * window.devicePixelRatio;
   waveCanvas.height = rect.height * window.devicePixelRatio;
   waveCtx.scale(window.devicePixelRatio, window.devicePixelRatio);
 }
 window.addEventListener("resize", resizeCanvas);
-// Delay initial resize so layout is settled
 setTimeout(resizeCanvas, 100);
 
-/**
- * Draw one frame of the waveform.
- * Mode "idle" → smooth sine curve
- * Mode "mic" or "tts" → amplitude-driven multi-line wave
- */
 function drawWave() {
   if (!waveCtx || !waveCanvas) return;
 
-  const W = waveCanvas.width  / window.devicePixelRatio;
+  const W = waveCanvas.width / window.devicePixelRatio;
   const H = waveCanvas.height / window.devicePixelRatio;
   const cx = waveCtx;
 
   cx.clearRect(0, 0, W, H);
 
-  // Build a gradient for the wave stroke (cyan → indigo)
   const grad = cx.createLinearGradient(0, 0, W, 0);
-  grad.addColorStop(0,    "#38bdf8");
-  grad.addColorStop(0.5,  "#818cf8");
-  grad.addColorStop(1,    "#38bdf8");
+  grad.addColorStop(0, "#38bdf8");
+  grad.addColorStop(0.5, "#818cf8");
+  grad.addColorStop(1, "#38bdf8");
 
   cx.strokeStyle = grad;
-  cx.lineWidth   = 2.2;
-  cx.lineCap     = "round";
-  cx.lineJoin    = "round";
+  cx.lineWidth = 2.5;
+  cx.lineCap = "round";
+  cx.lineJoin = "round";
 
   if (waveMode === "idle") {
-    // Smooth sine wave — gently pulsing when nothing is happening
-    idlePhase += 0.025;
-    cx.globalAlpha = 0.45;
+    idlePhase += 0.02;
+    cx.globalAlpha = 0.5;
     cx.beginPath();
     for (let x = 0; x <= W; x++) {
-      const t   = x / W;
-      const amp = 12;
-      const y   = H / 2 + Math.sin(t * Math.PI * 4 + idlePhase) * amp
-                        + Math.sin(t * Math.PI * 2 - idlePhase * 0.7) * (amp * 0.4);
+      const t = x / W;
+      const amp = 15;
+      const y = H / 2 + Math.sin(t * Math.PI * 3 + idlePhase) * amp
+        + Math.sin(t * Math.PI * 2 - idlePhase * 0.5) * (amp * 0.5);
       x === 0 ? cx.moveTo(x, y) : cx.lineTo(x, y);
     }
     cx.stroke();
     cx.globalAlpha = 1;
 
   } else {
-    // Live data from AnalyserNode (mic or tts)
-    // getByteTimeDomainData returns 0-255 where 128 = silence
     const bufferLength = analyser.frequencyBinCount;
-    const dataArray    = new Uint8Array(bufferLength);
+    const dataArray = new Uint8Array(bufferLength);
     analyser.getByteTimeDomainData(dataArray);
 
     cx.beginPath();
     const sliceW = W / bufferLength;
     let x = 0;
     for (let i = 0; i < bufferLength; i++) {
-      const v = dataArray[i] / 128.0;      // normalise to 0.0–2.0
+      const v = dataArray[i] / 128.0;
       const y = (v * H) / 2;
       i === 0 ? cx.moveTo(x, y) : cx.lineTo(x, y);
       x += sliceW;
@@ -136,7 +207,6 @@ function drawWave() {
   animFrameId = requestAnimationFrame(drawWave);
 }
 
-/** Start the animation loop (idempotent). */
 function startWaveAnimation(mode) {
   waveMode = mode;
   if (!animFrameId) {
@@ -144,38 +214,34 @@ function startWaveAnimation(mode) {
   }
 }
 
-/** Stop the loop and reset to idle. */
 function stopWaveAnimation() {
   if (animFrameId) {
     cancelAnimationFrame(animFrameId);
     animFrameId = null;
   }
   waveMode = "idle";
-  // Restart idle gentle animation
   startWaveAnimation("idle");
 }
 
-/** Update the status text below the waveform. */
 function setWaveStatus(text, active = false) {
   if (!waveformStatus) return;
   waveformStatus.textContent = text;
   waveformStatus.classList.toggle("active", active);
 }
 
-// Start idle animation immediately
 startWaveAnimation("idle");
 
 // ── 3. Message helpers ────────────────────────────────────────
 
 function appendMessage(text, role) {
-  const msgDiv    = document.createElement("div");
+  const msgDiv = document.createElement("div");
   const bubbleDiv = document.createElement("div");
 
   msgDiv.classList.add("message", role);
   bubbleDiv.classList.add("bubble");
 
   if (role === "bot") {
-    const rawHtml   = marked.parse(text);
+    const rawHtml = marked.parse(text);
     const cleanHtml = DOMPurify.sanitize(rawHtml);
     bubbleDiv.innerHTML = cleanHtml;
   } else {
@@ -184,13 +250,12 @@ function appendMessage(text, role) {
 
   msgDiv.appendChild(bubbleDiv);
 
-  // Speak button for bot messages
   if (role === "bot") {
     const speakBtn = document.createElement("button");
     speakBtn.classList.add("speak-btn");
     speakBtn.innerHTML = "🔊";
-    speakBtn.title     = "Speak (TTS)";
-    speakBtn.onclick   = () => playTTS(text, speakBtn);
+    speakBtn.title = "Speak (TTS)";
+    speakBtn.onclick = () => playTTS(text, speakBtn, true); // true = manual click
     msgDiv.appendChild(speakBtn);
   }
 
@@ -200,7 +265,7 @@ function appendMessage(text, role) {
 }
 
 function showLoading() {
-  const wrapper   = document.createElement("div");
+  const wrapper = document.createElement("div");
   const indicator = document.createElement("div");
   wrapper.classList.add("message", "bot");
   indicator.classList.add("loading-indicator");
@@ -216,81 +281,101 @@ function scrollToBottom() {
 }
 
 function setInputDisabled(disabled) {
-  inputEl.disabled  = disabled;
-  sendBtn.disabled  = disabled;
+  inputEl.disabled = disabled;
+  sendBtn.disabled = disabled;
 }
 
-// Auto-grow textarea
 inputEl.addEventListener("input", () => {
   inputEl.style.height = "auto";
   inputEl.style.height = inputEl.scrollHeight + "px";
 });
 
-// ── 4. TTS (Text-to-Speech) with waveform hook ───────────────
-//
-// After getting the MP3 blob we create an Audio element and connect it to the
-// Web Audio graph via createMediaElementSource → analyser → destination.
-// While audio plays the waveform canvas animates in "tts" mode.
+// ── 4. TTS (Text-to-Speech) ───────────────────────────────────
 
-let ttsSourceNode = null; // Keep reference to avoid duplicate connections
+let ttsSourceNode = null;
 
-async function playTTS(text, btnElement) {
-  const originalHtml = btnElement.innerHTML;
-  btnElement.innerHTML = "⏳";
-  btnElement.disabled  = true;
+async function playTTS(text, btnElement, isManual = false) {
+  // If muted and it's not a manual click, skip auto-play
+  if (isMuted && !isManual) return;
+
+  if (btnElement) {
+    var originalHtml = btnElement.innerHTML;
+    btnElement.innerHTML = "⏳";
+    btnElement.disabled = true;
+  }
   setWaveStatus("Generating speech…", true);
+
+  // If another audio is playing, stop it
+  if (currentAudio) {
+    currentAudio.pause();
+    currentAudio.currentTime = 0;
+  }
+
+  chatAbortController = new AbortController();
+  setInterruptActive(true);
 
   try {
     const response = await fetch("/api/tts", {
-      method:  "POST",
+      method: "POST",
       headers: { "Content-Type": "application/json" },
-      body:    JSON.stringify({ text }),
+      body: JSON.stringify({ text }),
+      signal: chatAbortController.signal
     });
 
     if (!response.ok) throw new Error("TTS failed");
 
-    const blob     = await response.blob();
+    const blob = await response.blob();
     const audioUrl = URL.createObjectURL(blob);
-    const audio    = new Audio(audioUrl);
+    currentAudio = new Audio(audioUrl);
 
-    // ── Web Audio hook: route the <audio> element through our AnalyserNode ──
     ensureAudioCtx();
 
-    // Disconnect any previous TTS source to avoid multiple connections
     if (ttsSourceNode) {
-      try { ttsSourceNode.disconnect(); } catch (_) {}
+      try { ttsSourceNode.disconnect(); } catch (_) { }
       ttsSourceNode = null;
     }
 
-    // createMediaElementSource can only be called once per element
-    const sourceNode = audioCtx.createMediaElementSource(audio);
-    ttsSourceNode    = sourceNode;
-    sourceNode.connect(analyser);  // analyser already connected to destination
+    const sourceNode = audioCtx.createMediaElementSource(currentAudio);
+    ttsSourceNode = sourceNode;
+    sourceNode.connect(analyser);
+    sourceNode.connect(audioCtx.destination);
 
-    audio.addEventListener("play",  () => {
+    currentAudio.addEventListener("play", () => {
       startWaveAnimation("tts");
       setWaveStatus("Speaking…", true);
     });
 
-    audio.addEventListener("ended", () => {
+    currentAudio.addEventListener("ended", () => {
       stopWaveAnimation();
       setWaveStatus("Tap the mic to speak…", false);
-      btnElement.innerHTML = originalHtml;
-      btnElement.disabled  = false;
+      if (btnElement) {
+        btnElement.innerHTML = originalHtml;
+        btnElement.disabled = false;
+      }
       URL.revokeObjectURL(audioUrl);
+      currentAudio = null;
+      setInterruptActive(false);
     });
 
-    // Resume AudioContext if suspended (browser autoplay policy)
     if (audioCtx.state === "suspended") await audioCtx.resume();
-    await audio.play();
+    await currentAudio.play();
 
   } catch (err) {
-    console.error(err);
-    stopWaveAnimation();
-    setWaveStatus("Voice unavailable", false);
-    alert("Voice feature unavailable right now");
-    btnElement.innerHTML = originalHtml;
-    btnElement.disabled  = false;
+    if (err.name === 'AbortError') {
+      console.log('TTS aborted');
+    } else {
+      console.error(err);
+      stopWaveAnimation();
+      setWaveStatus("Voice unavailable", false);
+      if (btnElement) {
+        btnElement.innerHTML = originalHtml;
+        btnElement.disabled = false;
+      }
+    }
+  } finally {
+    if (!currentAudio) {
+      setInterruptActive(false);
+    }
   }
 }
 
@@ -307,11 +392,15 @@ async function sendMessage() {
   setInputDisabled(true);
   const loadingEl = showLoading();
 
+  chatAbortController = new AbortController();
+  setInterruptActive(true);
+
   try {
     const response = await fetch("/api/chat", {
-      method:  "POST",
+      method: "POST",
       headers: { "Content-Type": "application/json" },
-      body:    JSON.stringify({ message: text, session_id: sessionId }),
+      body: JSON.stringify({ message: text, session_id: sessionId }),
+      signal: chatAbortController.signal
     });
 
     loadingEl.remove();
@@ -319,19 +408,34 @@ async function sendMessage() {
 
     if (!response.ok || data.error) {
       appendMessage(data.error || "Something went wrong. Please try again.", "error");
+      setInterruptActive(false);
     } else {
       if (data.session_id) {
         sessionId = data.session_id;
         localStorage.setItem("chatbot_session_id", sessionId);
       }
       const botMsg = appendMessage(data.reply, "bot");
-      // Update waveform status to a short preview of the reply
-      setWaveStatus(data.reply.slice(0, 60) + (data.reply.length > 60 ? "…" : ""), false);
+
+      const botSpeakBtn = botMsg.querySelector(".speak-btn");
+
+      // Auto-play TTS if not muted
+      if (!isMuted) {
+        // playTTS will handle setting setInterruptActive(false) when done
+        playTTS(data.reply, botSpeakBtn, false);
+      } else {
+        setWaveStatus(data.reply.slice(0, 60) + (data.reply.length > 60 ? "…" : ""), false);
+        setInterruptActive(false);
+      }
     }
 
-  } catch (networkError) {
+  } catch (err) {
     loadingEl.remove();
-    appendMessage("Could not reach the server. Is the FastAPI app running?", "error");
+    if (err.name === 'AbortError') {
+      appendMessage("Request interrupted.", "error");
+    } else {
+      appendMessage("Could not reach the server. Is the FastAPI app running?", "error");
+    }
+    setInterruptActive(false);
   } finally {
     setInputDisabled(false);
     inputEl.focus();
@@ -349,15 +453,12 @@ inputEl.addEventListener("keydown", (event) => {
   }
 });
 
-// ── 7. STT (Speech-to-Text) with live waveform ───────────────
-//
-// When recording starts we connect the microphone stream to the same
-// AnalyserNode so the canvas visualizes the user's voice in real time.
+// ── 7. STT (Speech-to-Text) ───────────────────────────────────
 
-let mediaRecorder    = null;
-let audioChunks      = [];
-let isRecording      = false;
-let micSourceNode    = null; // MediaStreamAudioSourceNode for mic
+let mediaRecorder = null;
+let audioChunks = [];
+let isRecording = false;
+let micSourceNode = null;
 
 if (micBtn) {
   micBtn.addEventListener("click", async () => {
@@ -373,22 +474,19 @@ async function startRecording() {
   try {
     const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
     mediaRecorder = new MediaRecorder(stream);
-    audioChunks   = [];
+    audioChunks = [];
 
-    // ── Web Audio hook: pipe mic into AnalyserNode ──
     ensureAudioCtx();
     if (audioCtx.state === "suspended") await audioCtx.resume();
 
-    // Connect mic stream to the shared analyser (NOT to destination — avoids feedback)
     micSourceNode = audioCtx.createMediaStreamSource(stream);
     micSourceNode.connect(analyser);
 
     mediaRecorder.addEventListener("dataavailable", e => audioChunks.push(e.data));
 
     mediaRecorder.addEventListener("stop", async () => {
-      // Disconnect mic from analyser when done
       if (micSourceNode) {
-        try { micSourceNode.disconnect(); } catch (_) {}
+        try { micSourceNode.disconnect(); } catch (_) { }
         micSourceNode = null;
       }
       const audioBlob = new Blob(audioChunks, { type: "audio/webm" });
@@ -403,6 +501,9 @@ async function startRecording() {
     micBtn.innerHTML = "⏹";
     micBtn.classList.add("recording");
 
+    // Enable Hold button
+    setHoldActive(true);
+
   } catch (err) {
     console.error("Mic access denied or error:", err);
     alert("Microphone access is required for voice input.");
@@ -410,14 +511,14 @@ async function startRecording() {
 }
 
 function stopRecording() {
-  if (mediaRecorder && mediaRecorder.state === "recording") {
+  if (mediaRecorder && mediaRecorder.state !== "inactive") {
     mediaRecorder.stop();
     isRecording = false;
     stopWaveAnimation();
     setWaveStatus("Transcribing…", true);
-    // Restore mic icon via SVG (innerHTML reset after transcription finishes)
     micBtn.innerHTML = "⏳";
     micBtn.classList.remove("recording");
+    setHoldActive(false);
   }
 }
 
@@ -434,7 +535,6 @@ async function transcribeAudio(audioBlob) {
     const data = await response.json();
     if (data.error) throw new Error(data.error);
 
-    // VAD found no human speech — give the user a hint without an alert
     if (data.vad === "no_speech" || !data.text) {
       setWaveStatus("No speech detected — try again", false);
       return;
@@ -446,12 +546,14 @@ async function transcribeAudio(audioBlob) {
     inputEl.style.height = inputEl.scrollHeight + "px";
     setWaveStatus(data.text, false);
 
+    // Auto send the message
+    sendMessage();
+
   } catch (err) {
     console.error(err);
     setWaveStatus("Transcription failed", false);
     alert("Voice feature unavailable right now");
   } finally {
-    // Restore mic SVG
     micBtn.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor">
       <path d="M12 1a4 4 0 0 1 4 4v6a4 4 0 0 1-8 0V5a4 4 0 0 1 4-4z"/>
       <path d="M19 10a1 1 0 0 0-2 0 5 5 0 0 1-10 0 1 1 0 0 0-2 0 7 7 0 0 0 6 6.93V19H9a1 1 0 0 0 0 2h6a1 1 0 0 0 0-2h-2v-2.07A7 7 0 0 0 19 10z"/>

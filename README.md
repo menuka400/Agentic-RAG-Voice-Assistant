@@ -1,6 +1,6 @@
 # Agentic RAG Voice Assistant
 
-A locally-run chatbot web app with agentic tool calling and voice capabilities. Built for learning and portfolio purposes, with plans to expand into full Retrieval-Augmented Generation (RAG). Automatically opens in your browser when started.
+A locally-run, fully agentic AI chatbot with voice capabilities and local RAG (Retrieval-Augmented Generation). Built with FastAPI, LangGraph, and Groq LLM. Automatically opens in your browser when started. Built for learning and portfolio purposes.
 
 ## Table of Contents
 - [Project Overview](#project-overview)
@@ -14,7 +14,7 @@ A locally-run chatbot web app with agentic tool calling and voice capabilities. 
 
 ## Project Overview
 - **Core Engine:** Built with FastAPI (backend), LangChain + LangGraph (agentic orchestration), and Groq API for high-speed LLM inference (using `llama-3.3-70b-versatile`).
-- **Agentic Tool Use:** Features real-time web search (via DuckDuckGo) and a custom timezone-aware date/time tool. The agent autonomously decides when to use tools to answer queries.
+- **Agentic Tool Use:** Features real-time web search (via DuckDuckGo), a custom timezone-aware date/time tool, and **Local Document RAG** to query user-uploaded PDFs. The agent autonomously decides when to use tools and explicitly cites its sources in responses.
 - **Voice Interaction:** Supports Speech-to-Text (STT) and Text-to-Speech (TTS) via ElevenLabs API (currently using Groq Whisper API for STT). Integrates TEN VAD (Voice Activity Detection) as a preprocessing layer to filter out silence and background noise before transcription, combined with a custom frequency-range human-voice check.
 - **Memory Management:** Session-based conversation memory (in-memory, resets on restart) with automatic summarization of older messages to prevent exceeding the LLM context window.
 - **UI:** A clean, locally hosted web UI that properly renders Markdown (bullet points, bold text, etc.).
@@ -26,35 +26,45 @@ A locally-run chatbot web app with agentic tool calling and voice capabilities. 
 - **LangChain / LangGraph**
 - **Groq API** (`llama-3.3-70b-versatile`)
 - **DuckDuckGo Search**
+- **ChromaDB** & **sentence-transformers** (Local Vector Store & Embeddings)
 - **TEN VAD**
 - **ElevenLabs API** (TTS/STT)
 - **Jinja2 Templates**
 - **Vanilla JS / HTML / CSS** (Frontend)
 
 ## Features
-- Real-time web search for current events/facts
+- Real-time web search for current events and facts
+- Local Document RAG — drop PDFs into `data/pdfs/` and query them without any cloud service
+- Source citation footer on every response (PDF filename & page, Web Search, or LLM Knowledge)
 - Accurate date/time lookup by timezone
-- Voice input (STT) and voice output (TTS)
+- Voice input (STT via Groq Whisper) and voice output (TTS via ElevenLabs)
 - Background noise filtering via VAD before transcription
-- Session-based conversation memory with long-conversation summarization
+- Session-based conversation memory with automatic summarization for long conversations
 - Clean Markdown-rendered chat responses
 
 ## File Structure
 ```text
 chatbot/
-├── main.py
+├── main.py                  # Entry point — runs ingest then starts server
+├── ingest.py                # PDF ingestion script (chunk → embed → ChromaDB)
 ├── config.py
 ├── requirements.txt
 ├── .env.example
+├── data/
+│   └── pdfs/               # Drop PDFs here to add them to RAG
+├── vectorstore/             # Auto-generated ChromaDB store (gitignored)
 ├── app/
 │   ├── routes.py
-│   ├── agent.py
-│   ├── tools.py
+│   ├── agent.py             # LangGraph agent with tool calling & verification
+│   ├── tools.py             # Tool definitions (web_search, datetime, search_documents)
 │   ├── chat_history.py
 │   ├── voice_client.py
 │   ├── vad_processor.py
 │   ├── schemas.py
-│   └── groq_client.py
+│   ├── groq_client.py
+│   └── rag/
+│       ├── retriever.py     # Loads ChromaDB and retrieves top-k chunks
+│       └── rag_tool.py      # LangChain @tool wrapper for RAG
 ├── static/
 │   ├── css/
 │   │   └── style.css
@@ -138,16 +148,32 @@ chatbot/
    - *Cause:* Committing from the wrong root directory during initialization.
    - *Solution:* Moved files to the true repository root using `git mv` (or Windows `Move-Item`) and re-committed for a clean structure.
 
+8. **ChromaDB File Lock on Startup (`WinError 32`)**
+   - *Problem:* The RAG ingest step crashed on restart because the app loaded the ChromaDB before ingest tried to delete and rebuild it.
+   - *Cause:* `create_app()` was called before `ingest.main()`, causing the DB file to be locked by the retriever before ingest could clear it.
+   - *Solution:* Reordered `main.py` so that `ingest.main()` runs first, before the FastAPI app (and its retriever) is initialized. Also changed ingest to skip rebuilding if the vectorstore already exists.
+
+9. **Groq Malformed Tool Call Syntax (`tool_use_failed`)**
+   - *Problem:* Groq would occasionally return `<function=tool_name{...}` (missing closing `>`) instead of the proper structured tool call, causing a 400 error and the agent falling back to "Sorry, I had trouble..."
+   - *Cause:* A known intermittent Groq API generation failure (`failed_generation`).
+   - *Solution:* Fixed the regex fallback parser in `agent.py` to make the `>` optional, so the malformed call can still be parsed and correctly routed to the tool.
+
 ## Roadmap / Future Enhancements
 
-- [ ] Add RAG (Retrieval-Augmented Generation) support — ingest PDFs/documents (starting with technical books/papers) into a vector database (ChromaDB) with local embeddings, and add a search_documents tool to the existing agent alongside web_search
-- [ ] Replace ElevenLabs (TTS/STT) with fully open-source, self-hosted alternatives (faster-whisper for STT, Piper for TTS) for a 100% free/open-source stack
-- [ ] Redesign the chat UI with a modern voice-assistant aesthetic (dark theme, animated waveform visualization reacting to live audio)
-- [ ] Add an Interrupt button — allow the user to stop the bot mid-response/mid-speech
-- [ ] Add a Mute button — toggle TTS audio output on/off without disabling the feature entirely
-- [ ] Add a Hold/Pause button — pause the conversation/recording without ending the session
-- [ ] Persistent conversation history (optional file-based or database storage across server restarts)
-- [ ] Multi-document RAG source management as more PDFs/references are added over time
+### Completed
+- [x] Local RAG system — ingest PDFs into ChromaDB with local `sentence-transformers` embeddings; agent uses `search_documents` tool to query them
+- [x] Source citation footers — every response automatically shows whether info came from a PDF (with filename & page number), web search, or the LLM itself
+- [x] Multi-document RAG — any number of PDFs can be dropped into `data/pdfs/` and are all indexed together
+- [x] Groq tool-call failure recovery — regex fallback parses malformed `<function=...>` calls to prevent silent failures
+- [x] Redesign the chat UI with a modern voice-assistant aesthetic (dark theme, animated waveform visualization)
+- [x] Add an Interrupt button — allow the user to stop the bot mid-response/mid-speech
+- [x] Add a Mute button — toggle TTS audio output on/off without disabling the feature entirely
+- [x] Add a Hold/Pause button — pause the conversation/recording without ending the session
+
+### Pending
+- [ ] Replace ElevenLabs (TTS/STT) with fully open-source self-hosted alternatives (faster-whisper for STT, Piper for TTS) for a 100% free stack
+
+> **Note:** This chatbot does not have a specific hardcoded prompt that restricts its behavior by default. Users can freely modify the agent's system prompt to customize how it behaves to suit their own needs.
 
 ## License
 License: MIT
