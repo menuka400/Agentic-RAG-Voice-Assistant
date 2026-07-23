@@ -231,6 +231,42 @@ function setWaveStatus(text, active = false) {
 
 startWaveAnimation("idle");
 
+// ── 2b. Speech text cleanup ────────────────────────────────────
+// Strips markdown syntax, emoji, and the "Source: ..." attribution
+// line before text is sent to TTS, so the voice never reads out
+// symbols like "asterisk" or "thought balloon" — it only speaks the
+// actual sentence content. The chat bubble still renders the full
+// original markdown; only the TTS request uses this cleaned copy.
+
+function stripForSpeech(text) {
+  if (!text) return "";
+  let clean = text;
+
+  // Drop a trailing "Source: ..." attribution line (with or without emoji)
+  clean = clean.replace(/^[^\S\r\n]*\p{Emoji_Presentation}?\s*Source:.*$/gim, "");
+
+  // Markdown: images/links -> keep just the visible label
+  clean = clean.replace(/!\[([^\]]*)\]\([^)]*\)/g, "$1");
+  clean = clean.replace(/\[([^\]]*)\]\([^)]*\)/g, "$1");
+
+  // Markdown: bold/italic/strikethrough/inline code/headers/blockquote/hr
+  clean = clean.replace(/(\*\*\*|___)(.*?)\1/g, "$2");
+  clean = clean.replace(/(\*\*|__)(.*?)\1/g, "$2");
+  clean = clean.replace(/(\*|_)(.*?)\1/g, "$2");
+  clean = clean.replace(/~~(.*?)~~/g, "$1");
+  clean = clean.replace(/`{1,3}([^`]*)`{1,3}/g, "$1");
+  clean = clean.replace(/^#{1,6}\s+/gm, "");
+  clean = clean.replace(/^>\s?/gm, "");
+  clean = clean.replace(/^\s*([-*_]){3,}\s*$/gm, "");
+  clean = clean.replace(/^\s*[-*+]\s+/gm, "");
+  clean = clean.replace(/^\s*\d+\.\s+/gm, "");
+
+  // Strip remaining emoji / pictographs
+  clean = clean.replace(/\p{Extended_Pictographic}/gu, "");
+
+  return clean.replace(/\n{2,}/g, "\n").trim();
+}
+
 // ── 3. Message helpers ────────────────────────────────────────
 
 function appendMessage(text, role) {
@@ -255,7 +291,7 @@ function appendMessage(text, role) {
     speakBtn.classList.add("speak-btn");
     speakBtn.innerHTML = "🔊";
     speakBtn.title = "Speak (TTS)";
-    speakBtn.onclick = () => playTTS(text, speakBtn, true); // true = manual click
+    speakBtn.onclick = () => playTTS(stripForSpeech(text), speakBtn, true); // true = manual click
     msgDiv.appendChild(speakBtn);
   }
 
@@ -421,7 +457,7 @@ async function sendMessage() {
       // Auto-play TTS if not muted
       if (!isMuted) {
         // playTTS will handle setting setInterruptActive(false) when done
-        playTTS(data.reply, botSpeakBtn, false);
+        playTTS(stripForSpeech(data.reply), botSpeakBtn, false);
       } else {
         setWaveStatus(data.reply.slice(0, 60) + (data.reply.length > 60 ? "…" : ""), false);
         setInterruptActive(false);
